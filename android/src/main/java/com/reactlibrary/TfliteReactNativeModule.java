@@ -135,45 +135,48 @@ public class TfliteReactNativeModule extends ReactContextBaseJavaModule {
     inputSize = tensor.shape()[1];
     int inputChannels = tensor.shape()[3];
 
-    InputStream inputStream = new FileInputStream(path.replace("file://", ""));
-    Bitmap bitmapRaw = BitmapFactory.decodeStream(inputStream);
+    try{
+      InputStream inputStream = new FileInputStream(path.replace("file://", ""));
+      Bitmap bitmapRaw = BitmapFactory.decodeStream(inputStream);
+      Matrix matrix = getTransformationMatrix(bitmapRaw.getWidth(), bitmapRaw.getHeight(),
+              inputSize, inputSize, false);
+      int[] intValues = new int[inputSize * inputSize];
+      int bytePerChannel = tensor.dataType() == DataType.UINT8 ? 1 : BYTES_PER_CHANNEL;
+      ByteBuffer imgData = ByteBuffer.allocateDirect(1 * inputSize * inputSize * inputChannels * bytePerChannel);
+      imgData.order(ByteOrder.nativeOrder());
 
-    Matrix matrix = getTransformationMatrix(bitmapRaw.getWidth(), bitmapRaw.getHeight(),
-        inputSize, inputSize, false);
+      Bitmap bitmap = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888);
+      final Canvas canvas = new Canvas(bitmap);
+      canvas.drawBitmap(bitmapRaw, matrix, null);
+      bitmap.getPixels(intValues, 0, bitmap.getWidth(), 0, 0, bitmap.getWidth(), bitmap.getHeight());
 
-    int[] intValues = new int[inputSize * inputSize];
-    int bytePerChannel = tensor.dataType() == DataType.UINT8 ? 1 : BYTES_PER_CHANNEL;
-    ByteBuffer imgData = ByteBuffer.allocateDirect(1 * inputSize * inputSize * inputChannels * bytePerChannel);
-    imgData.order(ByteOrder.nativeOrder());
-
-    Bitmap bitmap = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888);
-    final Canvas canvas = new Canvas(bitmap);
-    canvas.drawBitmap(bitmapRaw, matrix, null);
-    bitmap.getPixels(intValues, 0, bitmap.getWidth(), 0, 0, bitmap.getWidth(), bitmap.getHeight());
-
-    int pixel = 0;
-    for (int i = 0; i < inputSize; ++i) {
-      for (int j = 0; j < inputSize; ++j) {
-        int pixelValue = intValues[pixel++];
-        if (tensor.dataType() == DataType.FLOAT32) {
-          imgData.putFloat((((pixelValue >> 16) & 0xFF) - mean) / std);
-          imgData.putFloat((((pixelValue >> 8) & 0xFF) - mean) / std);
-          imgData.putFloat(((pixelValue & 0xFF) - mean) / std);
-        } else {
-          imgData.put((byte) ((pixelValue >> 16) & 0xFF));
-          imgData.put((byte) ((pixelValue >> 8) & 0xFF));
-          imgData.put((byte) (pixelValue & 0xFF));
+      int pixel = 0;
+      for (int i = 0; i < inputSize; ++i) {
+        for (int j = 0; j < inputSize; ++j) {
+          int pixelValue = intValues[pixel++];
+          if (tensor.dataType() == DataType.FLOAT32) {
+            imgData.putFloat((((pixelValue >> 16) & 0xFF) - mean) / std);
+            imgData.putFloat((((pixelValue >> 8) & 0xFF) - mean) / std);
+            imgData.putFloat(((pixelValue & 0xFF) - mean) / std);
+          } else {
+            imgData.put((byte) ((pixelValue >> 16) & 0xFF));
+            imgData.put((byte) ((pixelValue >> 8) & 0xFF));
+            imgData.put((byte) (pixelValue & 0xFF));
+          }
         }
       }
+
+      return imgData;
+    }catch(Exception e){
+      return ByteBuffer.allocate(691200); //default
     }
 
-    return imgData;
+
   }
 
   @ReactMethod
   private void runModelOnImage(final String path, final float mean, final float std, final int numResults,
                                final float threshold, final Callback callback) throws IOException {
-
     tfLite.run(feedInputTensorImage(path, mean, std), labelProb);
 
     callback.invoke(null, GetTopN(numResults, threshold));
